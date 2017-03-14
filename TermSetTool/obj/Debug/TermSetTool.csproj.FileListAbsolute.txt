@@ -1,0 +1,10 @@
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\bin\Debug\TermSetTool.exe.config
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\bin\Debug\TermSetTool.exe
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\bin\Debug\TermSetTool.pdb
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\bin\Debug\Camlex.NET.dll
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.csprojResolveAssemblyReference.cache
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.frmTermStoreSync.resources
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.Properties.Resources.resources
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.csproj.GenerateResource.Cache
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.exe
+C:\Users\ichan\Dropbox\GitLab\TermSetTool\TermSetTool\obj\Debug\TermSetTool.pdb

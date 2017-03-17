@@ -1,5 +1,4 @@
-﻿using Microsoft.SharePoint;
-using Microsoft.SharePoint.Client;
+﻿using Microsoft.SharePoint.Client;
 using Microsoft.SharePoint.Client.Taxonomy;
 using System;
 using System.Collections.Generic;
@@ -88,153 +87,12 @@ namespace TermSetTool.Classes
                 else
                 {
                     Log.Internal.TraceInformation((int)EventId.CopyTermGroup_Copying, "Copying termgroup {0}...", termGroup.Name);
-                    this.CreateNewTargetTermGroup(sourceContext, targetContext, sourceTermGroup, targetTermStore, languagesToProcess, "");
+                    this.CreateNewTargetTermGroup(sourceContext, targetContext, sourceTermGroup, targetTermStore, languagesToProcess);
                 }
             }
 
             return true;
         }
-
-        public bool CopyTermSet(ClientContext sourceContext, ClientContext targetContext, string termgroupname, string termsetToCopy = null)
-        {
-            TermStore sourceTermStore = GetTermStoreObject(sourceContext);
-            TermStore targetTermStore = GetTermStoreObject(targetContext);
-
-            // Check default language
-            List<int> languagesToProcess = null;
-            if (!ValidTermStoreLanguages(sourceTermStore, targetTermStore, out languagesToProcess))
-            {
-                Log.Internal.TraceError((int)EventId.LanguageMismatch, "The target termstore default language is not available as language in the source term store, syncing cannot proceed.");
-                return false;
-            }
-
-
-            // Make sure the Target Term Group Exists
-            TermGroup targetTermGroup = GetTermGroup(targetContext, targetTermStore, termgroupname);
-            TermGroup sourceTermGroup = GetTermGroup(sourceContext, sourceTermStore, termgroupname);
-
-            if (targetTermGroup == null)
-            {
-                // Target Group Does not exist so we must create this
-                this.CreateNewTargetTermGroup(sourceContext, targetContext, sourceTermGroup, targetTermStore, languagesToProcess, termsetToCopy);
-            }
-            else
-            {
-                foreach (TermSet targettermset in targetTermGroup.TermSets)
-                {
-                    if (targettermset.Name.Equals(termsetToCopy, StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        // delete the termset if already exists
-                        targettermset.DeleteObject();
-                        targetContext.ExecuteQuery();
-                        break;
-                    }
-                }
-                this.CreateNewTargetTermSet(sourceContext, targetContext, sourceTermGroup, targetTermStore, languagesToProcess, termsetToCopy);
-            }
-
-            return true;
-        }
-
-        public void CreateNewTargetTermSet(ClientContext sourceClientContext, ClientContext targetClientContext, TermGroup sourceTermGroup, TermStore targetTermStore, List<int> languagesToProcess, string termsetname)
-        {
-            TermGroup destinationTermGroup = GetTermGroup(targetClientContext, targetTermStore, sourceTermGroup.Name);
-
-            TermSetCollection sourceTermSetCollection = sourceTermGroup.TermSets;
-            if (sourceTermSetCollection.Count > 0)
-            {
-                foreach (TermSet sourceTermSet in sourceTermSetCollection)
-                {
-                    if (termsetname == sourceTermSet.Name)
-                    {
-                        sourceClientContext.Load(sourceTermSet,
-                                              set => set.Name,
-                                              set => set.Description,
-                                              set => set.Id,
-                                              set => set.Contact,
-                                              set => set.CustomProperties,
-                                              set => set.IsAvailableForTagging,
-                                              set => set.IsOpenForTermCreation,
-                                              set => set.CustomSortOrder,
-                                              set => set.CustomProperties,
-                                              set => set.Terms.Include(
-                                                        term => term.Name,
-                                                        term => term.Description,
-                                                        term => term.Id,
-                                                        term => term.IsAvailableForTagging,
-                                                        term => term.CustomSortOrder,
-                                                        term => term.LocalCustomProperties,
-                                                        term => term.CustomProperties,
-                                                        term => term.IsDeprecated,
-                                                        term => term.Labels.Include(label => label.Value, label => label.Language, label => label.IsDefaultForLanguage)));
-
-                        sourceClientContext.ExecuteQuery();
-
-                        TermSet targetTermSet = destinationTermGroup.CreateTermSet(sourceTermSet.Name, sourceTermSet.Id, targetTermStore.DefaultLanguage);
-                        targetClientContext.Load(targetTermSet, set => set.CustomProperties);
-                        targetClientContext.ExecuteQuery();
-                        UpdateTermSet(sourceClientContext, targetClientContext, sourceTermSet, targetTermSet);
-
-                        foreach (Term sourceTerm in sourceTermSet.Terms)
-                        {
-                            Term reusedTerm = targetTermStore.GetTerm(sourceTerm.Id);
-                            targetClientContext.Load(reusedTerm);
-                            targetClientContext.ExecuteQuery();
-
-                            Term targetTerm;
-                            if (reusedTerm.ServerObjectIsNull.Value)
-                            {
-                                try
-                                {
-                                    targetTerm = targetTermSet.CreateTerm(sourceTerm.Name, targetTermStore.DefaultLanguage, sourceTerm.Id);
-                                    targetClientContext.Load(targetTerm, term => term.IsDeprecated,
-                                                                         term => term.CustomProperties,
-                                                                         term => term.LocalCustomProperties);
-                                    targetClientContext.ExecuteQuery();
-                                    UpdateTerm(sourceClientContext, targetClientContext, sourceTerm, targetTerm, languagesToProcess);
-                                }
-                                catch (ServerException ex)
-                                {
-                                    if (ex.Message.IndexOf("Failed to read from or write to database. Refresh and try again.") > -1)
-                                    {
-                                        // This exception was due to caching issues and generally is thrown when there's term reuse accross groups
-                                        targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
-                                    }
-                                    else
-                                    {
-                                        throw ex;
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
-                            }
-
-                            targetClientContext.Load(targetTerm);
-                            targetClientContext.ExecuteQuery();
-
-                            targetTermStore.UpdateCache();
-
-                            //Refresh session and termstore references to force reload of the term just added. This is 
-                            //needed cause there can be a update change event following next and without this trick
-                            //the newly created termset cannot be obtained from the server
-                            targetTermStore = GetTermStoreObject(targetClientContext);
-
-                            //recursively add the other terms
-                            ProcessSubTerms(sourceClientContext, targetClientContext, targetTermSet, targetTerm, sourceTerm, languagesToProcess, targetTermStore.DefaultLanguage);
-                        }
-                    }
-                }
-            }
-            targetClientContext.ExecuteQuery();
-        }
-
-        public bool CopyKeySet(ClientContext sourceContext, ClientContext targetContext, string termGroup)
-        {
-            return this.CopyNewTermGroups(sourceContext, targetContext, null, termGroup);
-        }
-
 
 
         /// <summary>
@@ -1030,7 +888,7 @@ namespace TermSetTool.Classes
         #endregion
 
         #region Private helper methods
-        public void CreateNewTargetTermGroup(ClientContext sourceClientContext, ClientContext targetClientContext, TermGroup sourceTermGroup, TermStore targetTermStore, List<int> languagesToProcess, string termsetname)
+        private void CreateNewTargetTermGroup(ClientContext sourceClientContext, ClientContext targetClientContext, TermGroup sourceTermGroup, TermStore targetTermStore, List<int> languagesToProcess)
         {
             TermGroup destinationTermGroup = targetTermStore.CreateGroup(sourceTermGroup.Name, sourceTermGroup.Id);
             if (!string.IsNullOrEmpty(sourceTermGroup.Description))
@@ -1043,9 +901,7 @@ namespace TermSetTool.Classes
             {
                 foreach (TermSet sourceTermSet in sourceTermSetCollection)
                 {
-                    if (termsetname == sourceTermSet.Name)
-                    {
-                        sourceClientContext.Load(sourceTermSet,
+                    sourceClientContext.Load(sourceTermSet,
                                               set => set.Name,
                                               set => set.Description,
                                               set => set.Id,
@@ -1066,62 +922,61 @@ namespace TermSetTool.Classes
                                                         term => term.IsDeprecated,
                                                         term => term.Labels.Include(label => label.Value, label => label.Language, label => label.IsDefaultForLanguage)));
 
-                        sourceClientContext.ExecuteQuery();
+                    sourceClientContext.ExecuteQuery();
 
-                        TermSet targetTermSet = destinationTermGroup.CreateTermSet(sourceTermSet.Name, sourceTermSet.Id, targetTermStore.DefaultLanguage);
-                        targetClientContext.Load(targetTermSet, set => set.CustomProperties);
+                    TermSet targetTermSet = destinationTermGroup.CreateTermSet(sourceTermSet.Name, sourceTermSet.Id, targetTermStore.DefaultLanguage);
+                    targetClientContext.Load(targetTermSet, set => set.CustomProperties);
+                    targetClientContext.ExecuteQuery();
+                    UpdateTermSet(sourceClientContext, targetClientContext, sourceTermSet, targetTermSet);
+
+                    foreach (Term sourceTerm in sourceTermSet.Terms)
+                    {
+                        Term reusedTerm = targetTermStore.GetTerm(sourceTerm.Id);
+                        targetClientContext.Load(reusedTerm);
                         targetClientContext.ExecuteQuery();
-                        UpdateTermSet(sourceClientContext, targetClientContext, sourceTermSet, targetTermSet);
 
-                        foreach (Term sourceTerm in sourceTermSet.Terms)
+                        Term targetTerm;
+                        if (reusedTerm.ServerObjectIsNull.Value)
                         {
-                            Term reusedTerm = targetTermStore.GetTerm(sourceTerm.Id);
-                            targetClientContext.Load(reusedTerm);
-                            targetClientContext.ExecuteQuery();
-
-                            Term targetTerm;
-                            if (reusedTerm.ServerObjectIsNull.Value)
+                            try
                             {
-                                try
+                                targetTerm = targetTermSet.CreateTerm(sourceTerm.Name, targetTermStore.DefaultLanguage, sourceTerm.Id);
+                                targetClientContext.Load(targetTerm, term => term.IsDeprecated,
+                                                                     term => term.CustomProperties,
+                                                                     term => term.LocalCustomProperties);
+                                targetClientContext.ExecuteQuery();
+                                UpdateTerm(sourceClientContext, targetClientContext, sourceTerm, targetTerm, languagesToProcess);
+                            }
+                            catch (ServerException ex)
+                            {
+                                if (ex.Message.IndexOf("Failed to read from or write to database. Refresh and try again.") > -1)
                                 {
-                                    targetTerm = targetTermSet.CreateTerm(sourceTerm.Name, targetTermStore.DefaultLanguage, sourceTerm.Id);
-                                    targetClientContext.Load(targetTerm, term => term.IsDeprecated,
-                                                                         term => term.CustomProperties,
-                                                                         term => term.LocalCustomProperties);
-                                    targetClientContext.ExecuteQuery();
-                                    UpdateTerm(sourceClientContext, targetClientContext, sourceTerm, targetTerm, languagesToProcess);
+                                    // This exception was due to caching issues and generally is thrown when there's term reuse accross groups
+                                    targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
                                 }
-                                catch (ServerException ex)
+                                else
                                 {
-                                    if (ex.Message.IndexOf("Failed to read from or write to database. Refresh and try again.") > -1)
-                                    {
-                                        // This exception was due to caching issues and generally is thrown when there's term reuse accross groups
-                                        targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
-                                    }
-                                    else
-                                    {
-                                        throw ex;
-                                    }
+                                    throw ex;
                                 }
                             }
-                            else
-                            {
-                                targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
-                            }
-
-                            targetClientContext.Load(targetTerm);
-                            targetClientContext.ExecuteQuery();
-
-                            targetTermStore.UpdateCache();
-
-                            //Refresh session and termstore references to force reload of the term just added. This is 
-                            //needed cause there can be a update change event following next and without this trick
-                            //the newly created termset cannot be obtained from the server
-                            targetTermStore = GetTermStoreObject(targetClientContext);
-
-                            //recursively add the other terms
-                            ProcessSubTerms(sourceClientContext, targetClientContext, targetTermSet, targetTerm, sourceTerm, languagesToProcess, targetTermStore.DefaultLanguage);
                         }
+                        else
+                        {
+                            targetTerm = targetTermSet.ReuseTerm(reusedTerm, false);
+                        }
+
+                        targetClientContext.Load(targetTerm);
+                        targetClientContext.ExecuteQuery();
+
+                        targetTermStore.UpdateCache();
+
+                        //Refresh session and termstore references to force reload of the term just added. This is 
+                        //needed cause there can be a update change event following next and without this trick
+                        //the newly created termset cannot be obtained from the server
+                        targetTermStore = GetTermStoreObject(targetClientContext);
+
+                        //recursively add the other terms
+                        ProcessSubTerms(sourceClientContext, targetClientContext, targetTermSet, targetTerm, sourceTerm, languagesToProcess, targetTermStore.DefaultLanguage);
                     }
                 }
             }
@@ -1464,13 +1319,7 @@ namespace TermSetTool.Classes
             //}
 
         }
-
-        #region Private helper methods
-
-
-
         #endregion
     }
 
 }
-        #endregion
